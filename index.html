@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GuardianAI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #0B1120;
+    --surface: #141B2E;
+    --surface-hover: #1B2438;
+    --border: #232D45;
+    --beacon: #F2A93B;
+    --danger: #E8543E;
+    --safe: #4ADE80;
+    --text: #EDEFF5;
+    --text-muted: #8B93A7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+  }
+  h1, h2, .display { font-family: 'Space Grotesk', sans-serif; }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 28px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .beacon-wrap {
+    position: relative;
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .beacon-core {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--beacon);
+    box-shadow: 0 0 12px var(--beacon);
+    z-index: 2;
+  }
+  .beacon-ring {
+    position: absolute;
+    border: 1.5px solid var(--beacon);
+    border-radius: 50%;
+    opacity: 0;
+    animation: pulse 2.4s ease-out infinite;
+  }
+  .beacon-ring:nth-child(2) { animation-delay: 0.8s; }
+  .beacon-ring:nth-child(3) { animation-delay: 1.6s; }
+  @keyframes pulse {
+    0%   { width: 14px; height: 14px; opacity: 0.8; }
+    100% { width: 44px; height: 44px; opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .beacon-ring { animation: none; opacity: 0.3; width: 30px; height: 30px; }
+  }
+  header h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
+  header .tagline { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+
+  nav {
+    display: flex; gap: 4px; padding: 0 32px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  nav button {
+    background: none; border: none; color: var(--text-muted);
+    font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500;
+    padding: 14px 18px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--beacon); border-bottom-color: var(--beacon); }
+
+  main { max-width: 720px; margin: 0 auto; padding: 32px 24px 80px; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fadeIn 0.25s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px; margin-bottom: 18px;
+  }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .card .desc { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
+
+  input, textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 11px 13px; color: var(--text);
+    font-family: 'Inter', sans-serif; font-size: 14px; margin-bottom: 10px; resize: vertical;
+  }
+  input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--beacon); outline-offset: 1px; }
+  input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+  .btn {
+    background: var(--beacon); color: #1a1206; border: none; border-radius: 8px;
+    padding: 11px 20px; font-family: 'Inter', sans-serif; font-weight: 600;
+    font-size: 14px; cursor: pointer; transition: filter 0.15s ease;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:active { filter: brightness(0.95); }
+  .btn-danger { background: var(--danger); color: #fff; width: 100%; padding: 16px; font-size: 16px; border-radius: 10px; }
+
+  .row { display: flex; gap: 10px; }
+  .row input { flex: 1; }
+
+  .result {
+    margin-top: 14px; padding: 14px 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; font-size: 13px; line-height: 1.6;
+  }
+  .chain-step { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .chain-step:last-child { border-bottom: none; }
+  .chain-agent {
+    flex-shrink: 0; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; padding: 3px 8px; border-radius: 5px;
+    background: var(--surface-hover); color: var(--beacon);
+  }
+  .score-bar-wrap { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 6px 0 10px; }
+  .score-bar { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+  .muted { color: var(--text-muted); }
+  .mono { font-family: monospace; font-size: 12px; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
+    border-radius: 5px; background: var(--surface-hover); color: var(--text-muted);
+  }
+  .incident {
+    padding: 12px; background: var(--bg); border-left: 3px solid var(--danger);
+    border-radius: 6px; margin-bottom: 8px; font-size: 13px;
+  }
+  .empty-state { text-align: center; color: var(--text-muted); font-size: 13px; padding: 24px 0; }
+  .route-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px; background: var(--bg); border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border);
+  }
+  .route-item.best { border-color: var(--beacon); }
+  .config-note {
+    font-size: 12px; color: var(--text-muted); padding: 10px 14px;
+    background: var(--surface-hover); border-radius: 8px; margin-bottom: 20px;
+  }
+  .config-note input { margin-top: 8px; margin-bottom: 0; font-size: 12px; padding: 7px 10px; }
+
+  #map, #routeMap {
+    height: 260px;
+    border-radius: 10px;
+    margin-top: 12px;
+    border: 1px solid var(--border);
+  }
+  .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text); }
+  .leaflet-popup-tip { background: var(--surface); }
+
+  .contact-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 8px;
+  }
+  .contact-row.official { border-left: 3px solid var(--safe); }
+  .contact-row.personal { border-left: 3px solid var(--beacon); }
+  .contact-name { font-weight: 500; font-size: 14px; }
+  .contact-type { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .call-btn {
+    background: var(--safe); color: #0a1f13; text-decoration: none;
+    font-weight: 600; font-size: 13px; padding: 7px 14px; border-radius: 7px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="beacon-wrap">
+    <div class="beacon-ring"></div>
+    <div class="beacon-ring"></div>
+    <div class="beacon-ring"></div>
+    <div class="beacon-core"></div>
+  </div>
+  <div>
+    <h1>GuardianAI</h1>
+    <div class="tagline">Predict. Protect. Respond. Recover.</div>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="orchestrate" class="active">Guardian Chat</button>
+  <button data-tab="sos">Emergency SOS</button>
+  <button data-tab="route">Route Safety</button>
+  <button data-tab="community">Community</button>
+  <button data-tab="recovery">Recovery Chat</button>
+  <button data-tab="dashboard">Dashboard</button>
+</nav>
+
+<main>
+  <div class="config-note">
+    Backend URL (change if not running locally on port 8000):
+    <input id="apiBase" value="https://guardian-ai-backend-3a2d8436.fastapicloud.dev" />
+  </div>
+
+  <div class="panel active" id="panel-orchestrate">
+    <div class="card" id="guardianModeCard">
+      <h2>🎙️ Guardian Mode — Live Listening</h2>
+      <p class="desc">This is the real pitch: GuardianAI listens continuously and detects danger before you ever press a button. Click Start, then just <b>say</b> something like "help, someone is following me" out loud.</p>
+      <button class="btn" id="guardianModeBtn" onclick="toggleGuardianMode()">▶ Start Guardian Mode</button>
+      <div id="liveTranscript" class="result" style="display:none;">
+        <span class="muted">Listening…</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Or type it instead</h2>
+      <p class="desc">Same pipeline, manual input — useful for testing without a mic.</p>
+      <textarea id="orchMessage" rows="3" placeholder="e.g. help someone is following me and I am scared"></textarea>
+      <button class="btn" onclick="callOrchestrate()">Send</button>
+    </div>
+
+    <div id="orchResult"></div>
+  </div>
+
+  <div class="panel" id="panel-sos">
+    <div class="card">
+      <h2>Emergency SOS</h2>
+      <p class="desc">Manually trigger an SOS — shares your location and notifies emergency contacts instantly.</p>
+      <button class="btn btn-danger" onclick="callSOS()">🚨 Trigger SOS Now</button>
+      <div id="sosResult"></div>
+      <div id="map"></div>
+    </div>
+    <div class="card">
+      <h2>Emergency Numbers (Pakistan)</h2>
+      <p class="desc">Real, verified helplines — tap to call directly. Add your own personal contacts below.</p>
+      <div id="contactsList"><div class="empty-state">Loading contacts…</div></div>
+      <div class="row" style="margin-top:14px;">
+        <input id="contactName" placeholder="Contact name">
+        <input id="contactPhone" placeholder="Phone number">
+      </div>
+      <button class="btn" onclick="addContact()">+ Add Personal Contact</button>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-route">
+    <div class="card">
+      <h2>Safest Route</h2>
+      <p class="desc">Get a safety-ranked route instead of the fastest one. Use real addresses/place names (add city name for best results, e.g. "Blue Area, Islamabad").</p>
+      <div class="row">
+        <input id="routeFrom" placeholder="From (e.g. F-7 Markaz, Islamabad)">
+        <input id="routeTo" placeholder="To (e.g. Centaurus Mall, Islamabad)">
+      </div>
+      <button class="btn" onclick="callRoute()">Find Safest Route</button>
+      <div id="routeResult"></div>
+      <div id="routeMap" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-community">
+    <div class="card">
+      <h2>Community Intelligence</h2>
+      <p class="desc">Insights summarized from anonymous community safety reports.</p>
+      <button class="btn" onclick="loadCommunitySummary()">Load Summary</button>
+      <div id="communityResult"></div>
+    </div>
+    <div class="card">
+      <h2>Submit a Report</h2>
+      <input id="reportCategory" placeholder="Category (e.g. poor_lighting, harassment)">
+      <textarea id="reportDesc" rows="2" placeholder="Describe what happened"></textarea>
+      <button class="btn" onclick="submitReport()">Submit Report</button>
+      <div id="reportResult"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-recovery">
+    <div class="card">
+      <h2>Recovery Assistant</h2>
+      <p class="desc">Talk through what to do after an incident — hospital, police, legal, or emotional support guidance.</p>
+      <textarea id="recoveryMessage" rows="2" placeholder="e.g. what should I do after reporting to the police?"></textarea>
+      <button class="btn" onclick="callRecovery()">Ask</button>
+      <div id="recoveryResult"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-dashboard">
+    <div class="card">
+      <h2>Live Dashboard</h2>
+      <p class="desc">Active incidents and emergency contacts.</p>
+      <button class="btn" onclick="loadDashboard()">Refresh</button>
+      <div id="dashboardResult"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  document.querySelectorAll('#tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  function apiBase() {
+    return document.getElementById('apiBase').value.replace(/\/$/, '');
+  }
+
+  async function postJSON(path, body) {
+    const res = await fetch(apiBase() + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error('Server returned ' + res.status);
+    return res.json();
+  }
+
+  async function getJSON(path) {
+    const res = await fetch(apiBase() + path);
+    if (!res.ok) throw new Error('Server returned ' + res.status);
+    return res.json();
+  }
+
+  function errorBox(el, err) {
+    el.innerHTML = `<div class="result" style="border-color: var(--danger); color: var(--danger);">
+      Couldn't reach the backend. Is it running at ${apiBase()}? <br><span class="mono">${err.message}</span>
+    </div>`;
+  }
+
+  function scoreColor(score) {
+    if (score >= 0.6) return 'var(--danger)';
+    if (score >= 0.3) return 'var(--beacon)';
+    return 'var(--safe)';
+  }
+
+  // ---------- Map ----------
+  let leafletMap = null;
+  let userMarker = null;
+
+  function initMap(lat, lng) {
+    if (!leafletMap) {
+      leafletMap = L.map('map').setView([lat, lng], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+      }).addTo(leafletMap);
+    }
+    if (userMarker) leafletMap.removeLayer(userMarker);
+    userMarker = L.marker([lat, lng]).addTo(leafletMap).bindPopup('Your location').openPopup();
+    leafletMap.setView([lat, lng], 14);
+  }
+
+  function tryLoadRealLocation() {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => initMap(pos.coords.latitude, pos.coords.longitude),
+        () => initMap(30.19, 71.47) // fallback demo location if permission denied
+      );
+    } else {
+      initMap(30.19, 71.47);
+    }
+  }
+
+  // ---------- Contacts ----------
+  async function loadContacts() {
+    const el = document.getElementById('contactsList');
+    try {
+      const data = await getJSON('/dashboard');
+      if (!data.contacts || data.contacts.length === 0) {
+        el.innerHTML = '<div class="empty-state">No contacts yet.</div>';
+        return;
+      }
+      el.innerHTML = data.contacts.map(c => `
+        <div class="contact-row ${c.type}">
+          <div>
+            <div class="contact-name">${c.name}</div>
+            <div class="contact-type">${c.type}</div>
+          </div>
+          <a class="call-btn" href="tel:${c.phone}">📞 ${c.phone}</a>
+        </div>
+      `).join('');
+    } catch (err) {
+      el.innerHTML = '<div class="empty-state">Couldn\'t load contacts — is the backend running?</div>';
+    }
+  }
+
+  async function addContact() {
+    const name = document.getElementById('contactName').value.trim();
+    const phone = document.getElementById('contactPhone').value.trim();
+    if (!name || !phone) return;
+    try {
+      await postJSON('/contacts', { name, phone });
+      document.getElementById('contactName').value = '';
+      document.getElementById('contactPhone').value = '';
+      loadContacts();
+    } catch (err) { /* silently ignore for demo */ }
+  }
+
+  // Load contacts + map as soon as the SOS tab data is needed
+  document.querySelector('[data-tab="sos"]').addEventListener('click', () => {
+    loadContacts();
+    setTimeout(() => tryLoadRealLocation(), 100); // slight delay so #map is visible/sized first
+  });
+
+  // ---------- Guardian Mode: live voice listening ----------
+  let recognition = null;
+  let guardianModeOn = false;
+
+  function toggleGuardianMode() {
+    const btn = document.getElementById('guardianModeBtn');
+    const transcriptBox = document.getElementById('liveTranscript');
+    const card = document.getElementById('guardianModeCard');
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      transcriptBox.style.display = 'block';
+      transcriptBox.innerHTML = '<span style="color:var(--danger)">Your browser doesn\'t support live voice recognition. Try Chrome or Edge, or use the text box below instead.</span>';
+      return;
+    }
+
+    if (guardianModeOn) {
+      recognition.stop();
+      guardianModeOn = false;
+      btn.textContent = '▶ Start Guardian Mode';
+      card.style.borderColor = 'var(--border)';
+      return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      guardianModeOn = true;
+      btn.textContent = '■ Stop Guardian Mode';
+      card.style.borderColor = 'var(--beacon)';
+      transcriptBox.style.display = 'block';
+      transcriptBox.innerHTML = '<span class="muted">🟢 Listening… speak naturally.</span>';
+    };
+
+    recognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+        else interimText += event.results[i][0].transcript;
+      }
+      transcriptBox.innerHTML = `<span class="muted">🟢 Listening…</span><br>"${finalText}${interimText}"`;
+      if (finalText.trim().length > 0) {
+        transcriptBox.innerHTML += '<br><span style="color:var(--beacon)">Analyzing…</span>';
+        callOrchestrate(finalText.trim());
+      }
+    };
+
+    recognition.onerror = (event) => {
+      transcriptBox.innerHTML = `<span style="color:var(--danger)">Mic error: ${event.error}. ${event.error === 'not-allowed' ? 'Allow microphone access in your browser and try again.' : ''}</span>`;
+    };
+
+    recognition.onend = () => {
+      if (guardianModeOn) recognition.start(); // keep listening continuously
+    };
+
+    recognition.start();
+  }
+
+  async function callOrchestrate(spokenMessage) {
+    const message = spokenMessage || document.getElementById('orchMessage').value.trim();
+    const el = document.getElementById('orchResult');
+    if (!message) return;
+    el.innerHTML = '<div class="result">Thinking…</div>';
+    try {
+      const data = await postJSON('/orchestrate', { message, user_id: 'demo-user', location: { lat: 30.19, lng: 71.47 } });
+      let html = `<div class="result"><span class="badge">Intent detected: ${data.intent}</span><div style="margin-top:14px;">`;
+      data.chain.forEach(step => {
+        html += `<div class="chain-step"><span class="chain-agent">${step.agent}</span><div>`;
+        if (step.result.danger_score !== undefined) {
+          html += `Danger score: <b style="color:${scoreColor(step.result.danger_score)}">${step.result.danger_score}</b>
+            <div class="score-bar-wrap"><div class="score-bar" style="width:${step.result.danger_score*100}%; background:${scoreColor(step.result.danger_score)}"></div></div>
+            <span class="muted">${step.result.reasoning}</span>`;
+        } else if (step.result.message) {
+          html += `${step.result.message}`;
+        } else if (step.result.response) {
+          html += `${step.result.response}`;
+        } else {
+          html += `<span class="mono">${JSON.stringify(step.result)}</span>`;
+        }
+        html += `</div></div>`;
+      });
+      html += `</div></div>`;
+      el.innerHTML = html;
+    } catch (err) { errorBox(el, err); }
+  }
+
+  async function callSOS() {
+    const el = document.getElementById('sosResult');
+    el.innerHTML = '<div class="result">Sending SOS…</div>';
+    const loc = userMarker ? { lat: userMarker.getLatLng().lat, lng: userMarker.getLatLng().lng } : { lat: 30.19, lng: 71.47 };
+    try {
+      const data = await postJSON('/emergency/sos', { user_id: 'demo-user', location: loc, reason: 'manual_trigger' });
+      let contactsHtml = data.incident.notified_contacts.length === 0
+        ? '<span class="muted">No personal contacts added yet — add one below to test a real call.</span>'
+        : data.incident.notified_contacts.map(c => `${c.name}: <span class="mono">${c.call_status}</span>`).join('<br>');
+      el.innerHTML = `<div class="result">
+        <b style="color: var(--danger)">SOS ACTIVATED</b><br>
+        Incident ID: <span class="mono">${data.incident.incident_id}</span><br>
+        ${data.message}<br><br>
+        ${contactsHtml}
+      </div>`;
+    } catch (err) { errorBox(el, err); }
+  }
+
+  let routeLeafletMap = null;
+  let routeLayer = null;
+
+  async function callRoute() {
+    const from = document.getElementById('routeFrom').value.trim();
+    const to = document.getElementById('routeTo').value.trim();
+    const el = document.getElementById('routeResult');
+    const mapEl = document.getElementById('routeMap');
+    if (!from || !to) return;
+    el.innerHTML = '<div class="result">Finding real route…</div>';
+    try {
+      const data = await postJSON('/route/predict', { source: from, destination: to });
+
+      if (data.mode === 'fallback_hardcoded') {
+        el.innerHTML = `<div class="result" style="border-color: var(--beacon);">
+          <span class="muted">Couldn't get a live route (${data.fallback_reason || 'service unavailable'}) — showing demo routes instead.</span>
+        </div>`;
+        mapEl.style.display = 'none';
+      } else {
+        el.innerHTML = '';
+        mapEl.style.display = 'block';
+      }
+
+      let html = '<div class="result">';
+      data.all_routes_ranked.forEach(r => {
+        const isBest = r.route === data.recommended_route.route;
+        html += `<div class="route-item ${isBest ? 'best' : ''}">
+          <div><b>${r.route}</b>${isBest ? ' <span class="badge" style="color:var(--beacon)">Recommended</span>' : ''}<br>
+          <span class="muted">${r.reason}</span></div>
+          <div style="color:${scoreColor(1-r.score)}; font-weight:600;">${r.score}</div>
+        </div>`;
+      });
+      html += '</div>';
+      el.innerHTML += html;
+
+      // Draw the real route on the map, if we got real geometry back
+      if (data.mode !== 'fallback_hardcoded' && data.source_coords) {
+        if (!routeLeafletMap) {
+          routeLeafletMap = L.map('routeMap');
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors', maxZoom: 19
+          }).addTo(routeLeafletMap);
+        }
+        if (routeLayer) routeLeafletMap.removeLayer(routeLayer);
+
+        const geo = data.recommended_route.geometry;
+        if (geo) {
+          routeLayer = L.geoJSON(geo, { style: { color: '#F2A93B', weight: 4 } }).addTo(routeLeafletMap);
+          routeLeafletMap.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+        }
+        L.marker([data.source_coords[0], data.source_coords[1]]).addTo(routeLeafletMap).bindPopup('Start: ' + from);
+        L.marker([data.destination_coords[0], data.destination_coords[1]]).addTo(routeLeafletMap).bindPopup('End: ' + to);
+        setTimeout(() => routeLeafletMap.invalidateSize(), 100);
+      }
+    } catch (err) { errorBox(el, err); mapEl.style.display = 'none'; }
+  }
+
+  async function loadCommunitySummary() {
+    const el = document.getElementById('communityResult');
+    el.innerHTML = '<div class="result">Loading…</div>';
+    try {
+      const data = await getJSON('/community/summary');
+      el.innerHTML = `<div class="result">${data.summary}<br><br><span class="muted">Based on ${data.based_on_reports} reports</span></div>`;
+    } catch (err) { errorBox(el, err); }
+  }
+
+  async function submitReport() {
+    const category = document.getElementById('reportCategory').value.trim();
+    const description = document.getElementById('reportDesc').value.trim();
+    const el = document.getElementById('reportResult');
+    if (!category || !description) return;
+    el.innerHTML = '<div class="result">Submitting…</div>';
+    try {
+      const data = await postJSON('/community/report', { category, description });
+      el.innerHTML = `<div class="result">Report added. Total reports: ${data.total_reports}</div>`;
+    } catch (err) { errorBox(el, err); }
+  }
+
+  async function callRecovery() {
+    const message = document.getElementById('recoveryMessage').value.trim();
+    const el = document.getElementById('recoveryResult');
+    if (!message) return;
+    el.innerHTML = '<div class="result">Thinking…</div>';
+    try {
+      const data = await postJSON('/recovery/chat', { message, user_id: 'demo-user' });
+      el.innerHTML = `<div class="result">${data.response}</div>`;
+    } catch (err) { errorBox(el, err); }
+  }
+
+  async function loadDashboard() {
+    const el = document.getElementById('dashboardResult');
+    el.innerHTML = '<div class="result">Loading…</div>';
+    try {
+      const data = await getJSON('/dashboard');
+      if (data.active_incidents.length === 0) {
+        el.innerHTML = '<div class="empty-state">No active incidents right now.</div>';
+        return;
+      }
+      let html = '';
+      data.active_incidents.forEach(inc => {
+        html += `<div class="incident">
+          <b>${inc.incident_id}</b> — ${inc.reason}<br>
+          <span class="muted mono">${inc.timestamp}</span><br>
+          Notified: ${inc.notified_contacts.join(', ')}
+        </div>`;
+      });
+      el.innerHTML = html;
+    } catch (err) { errorBox(el, err); }
+  }
+</script>
+
+</body>
+</html>
