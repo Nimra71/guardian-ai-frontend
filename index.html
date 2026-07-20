@@ -201,7 +201,7 @@
 
 <main>
   <div class="config-note">
-    Backend URL (change if not running locally on port 8000):
+    Backend URL — once deployed on Render, replace this with your live URL (e.g. https://guardian-ai-backend.onrender.com). Until then, localhost works for local testing.
     <input id="apiBase" value="https://guardian-ai-backend-3a2d8436.fastapicloud.dev" />
   </div>
 
@@ -252,6 +252,15 @@
       <div class="row">
         <input id="routeFrom" placeholder="From (e.g. F-7 Markaz, Islamabad)">
         <input id="routeTo" placeholder="To (e.g. Centaurus Mall, Islamabad)">
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <select id="routeTimeOfDay" style="width:100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 11px 13px; color: var(--text); font-family: 'Inter', sans-serif; font-size: 14px;">
+          <option value="morning">Morning (~8am)</option>
+          <option value="afternoon">Afternoon (~2pm)</option>
+          <option value="evening" selected>Evening (~7pm)</option>
+          <option value="night">Night (~11pm)</option>
+          <option value="late night">Late Night (~2am)</option>
+        </select>
       </div>
       <button class="btn" onclick="callRoute()">Find Safest Route</button>
       <div id="routeResult"></div>
@@ -437,6 +446,7 @@
 
     recognition.onstart = () => {
       guardianModeOn = true;
+      if (!userMarker) tryLoadRealLocation(); // make sure we have a real location before any danger message fires
       btn.textContent = '■ Stop Guardian Mode';
       card.style.borderColor = 'var(--beacon)';
       transcriptBox.style.display = 'block';
@@ -474,7 +484,8 @@
     if (!message) return;
     el.innerHTML = '<div class="result">Thinking…</div>';
     try {
-      const data = await postJSON('/orchestrate', { message, user_id: 'demo-user', location: { lat: 30.19, lng: 71.47 } });
+      const loc = userMarker ? { lat: userMarker.getLatLng().lat, lng: userMarker.getLatLng().lng } : { lat: 30.19, lng: 71.47 };
+      const data = await postJSON('/orchestrate', { message, user_id: 'demo-user', location: loc });
       let html = `<div class="result"><span class="badge">Intent detected: ${data.intent}</span><div style="margin-top:14px;">`;
       data.chain.forEach(step => {
         html += `<div class="chain-step"><span class="chain-agent">${step.agent}</span><div>`;
@@ -520,12 +531,13 @@
   async function callRoute() {
     const from = document.getElementById('routeFrom').value.trim();
     const to = document.getElementById('routeTo').value.trim();
+    const timeOfDay = document.getElementById('routeTimeOfDay').value;
     const el = document.getElementById('routeResult');
     const mapEl = document.getElementById('routeMap');
     if (!from || !to) return;
     el.innerHTML = '<div class="result">Finding real route…</div>';
     try {
-      const data = await postJSON('/route/predict', { source: from, destination: to });
+      const data = await postJSON('/route/predict', { source: from, destination: to, time_of_day: timeOfDay });
 
       if (data.mode === 'fallback_hardcoded') {
         el.innerHTML = `<div class="result" style="border-color: var(--beacon);">
