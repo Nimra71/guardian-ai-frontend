@@ -200,6 +200,27 @@
 </nav>
 
 <main>
+  <!-- AUTH GATE: shown instead of the app until logged in -->
+  <div class="card" id="authGate">
+    <h2 id="authTitle">Log in to GuardianAI</h2>
+    <p class="desc">Your contacts, incident history, and SOS alerts are private to your account.</p>
+    <input id="authEmail" type="email" placeholder="Email">
+    <input id="authPassword" type="password" placeholder="Password">
+    <button class="btn" id="authSubmitBtn" onclick="submitAuth()">Log In</button>
+    <p class="desc" style="margin-top:12px;">
+      <span id="authToggleText">Don't have an account?</span>
+      <a href="#" onclick="toggleAuthMode(); return false;" style="color: var(--beacon);" id="authToggleLink">Sign up</a>
+    </p>
+    <div id="authResult"></div>
+  </div>
+
+  <!-- Shown once logged in -->
+  <div id="appContent" style="display:none;">
+    <div class="config-note" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>Logged in as <b id="loggedInEmail"></b></span>
+      <button class="btn" style="padding:6px 14px; font-size:12px;" onclick="logout()">Log Out</button>
+    </div>
+
   <div class="config-note">
     Backend URL — once deployed on Render, replace this with your live URL (e.g. https://guardian-ai-backend.onrender.com). Until then, localhost works for local testing.
     <input id="apiBase" value="https://guardian-ai-backend-3a2d8436.fastapicloud.dev" />
@@ -302,6 +323,7 @@
       <div id="dashboardResult"></div>
     </div>
   </div>
+  </div><!-- closes appContent -->
 </main>
 
 <script>
@@ -318,18 +340,84 @@
     return document.getElementById('apiBase').value.replace(/\/$/, '');
   }
 
+  // ---------- Auth ----------
+  function getToken() { return localStorage.getItem('guardianai_token'); }
+  function getEmail() { return localStorage.getItem('guardianai_email'); }
+
+  function authHeaders() {
+    const token = getToken();
+    return token ? { 'Authorization': 'Bearer ' + token } : {};
+  }
+
+  let authMode = 'login'; // or 'register'
+
+  function toggleAuthMode() {
+    authMode = authMode === 'login' ? 'register' : 'login';
+    document.getElementById('authTitle').textContent = authMode === 'login' ? 'Log in to GuardianAI' : 'Create your GuardianAI account';
+    document.getElementById('authSubmitBtn').textContent = authMode === 'login' ? 'Log In' : 'Sign Up';
+    document.getElementById('authToggleText').textContent = authMode === 'login' ? "Don't have an account?" : 'Already have an account?';
+    document.getElementById('authToggleLink').textContent = authMode === 'login' ? 'Sign up' : 'Log in';
+    document.getElementById('authResult').innerHTML = '';
+  }
+
+  async function submitAuth() {
+    const email = document.getElementById('authEmail').value.trim();
+    const password = document.getElementById('authPassword').value;
+    const el = document.getElementById('authResult');
+    if (!email || !password) return;
+    el.innerHTML = '<div class="result">Please wait…</div>';
+    try {
+      const path = authMode === 'login' ? '/auth/login' : '/auth/register';
+      const res = await fetch(apiBase() + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        el.innerHTML = `<div class="result" style="border-color: var(--danger); color: var(--danger);">${data.detail || 'Something went wrong'}</div>`;
+        return;
+      }
+      localStorage.setItem('guardianai_token', data.token);
+      localStorage.setItem('guardianai_email', data.email);
+      showApp();
+    } catch (err) {
+      el.innerHTML = `<div class="result" style="border-color: var(--danger); color: var(--danger);">Couldn't reach the backend. Is the Backend URL correct?</div>`;
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem('guardianai_token');
+    localStorage.removeItem('guardianai_email');
+    document.getElementById('appContent').style.display = 'none';
+    document.getElementById('authGate').style.display = 'block';
+    document.getElementById('authEmail').value = '';
+    document.getElementById('authPassword').value = '';
+  }
+
+  function showApp() {
+    document.getElementById('authGate').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    document.getElementById('loggedInEmail').textContent = getEmail() || '';
+  }
+
+  // On page load, if we already have a token saved, skip straight to the app.
+  if (getToken()) showApp();
+
   async function postJSON(path, body) {
     const res = await fetch(apiBase() + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body)
     });
+    if (res.status === 401) { logout(); throw new Error('Please log in again'); }
     if (!res.ok) throw new Error('Server returned ' + res.status);
     return res.json();
   }
 
   async function getJSON(path) {
-    const res = await fetch(apiBase() + path);
+    const res = await fetch(apiBase() + path, { headers: { ...authHeaders() } });
+    if (res.status === 401) { logout(); throw new Error('Please log in again'); }
     if (!res.ok) throw new Error('Server returned ' + res.status);
     return res.json();
   }
@@ -344,6 +432,19 @@
     if (score >= 0.6) return 'var(--danger)';
     if (score >= 0.3) return 'var(--beacon)';
     return 'var(--safe)';
+  }
+
+  function safetyLabel(score) {
+    if (score >= 0.65) return { text: 'Safe', color: 'var(--safe)' };
+    if (score >= 0.45) return { text: 'Moderate Risk', color: 'var(--beacon)' };
+    if (score >= 0.25) return { text: 'Risky', color: '#f0883e' };
+    return { text: 'High Risk', color: 'var(--danger)' };
+  }
+
+  function dangerLabel(score) {
+    if (score >= 0.6) return { text: 'High Danger', color: 'var(--danger)' };
+    if (score >= 0.3) return { text: 'Some Concern', color: 'var(--beacon)' };
+    return { text: 'Low Concern', color: 'var(--safe)' };
   }
 
   // ---------- Map ----------
@@ -485,14 +586,15 @@
     el.innerHTML = '<div class="result">Thinking…</div>';
     try {
       const loc = userMarker ? { lat: userMarker.getLatLng().lat, lng: userMarker.getLatLng().lng } : { lat: 30.19, lng: 71.47 };
-      const data = await postJSON('/orchestrate', { message, user_id: 'demo-user', location: loc });
+      const data = await postJSON('/orchestrate', { message, location: loc });
       let html = `<div class="result"><span class="badge">Intent detected: ${data.intent}</span><div style="margin-top:14px;">`;
       data.chain.forEach(step => {
         html += `<div class="chain-step"><span class="chain-agent">${step.agent}</span><div>`;
         if (step.result.danger_score !== undefined) {
-          html += `Danger score: <b style="color:${scoreColor(step.result.danger_score)}">${step.result.danger_score}</b>
+          const dLabel = dangerLabel(step.result.danger_score);
+          html += `<div style="color:${dLabel.color}; font-weight:700; font-size:14px;">${dLabel.text}</div>
             <div class="score-bar-wrap"><div class="score-bar" style="width:${step.result.danger_score*100}%; background:${scoreColor(step.result.danger_score)}"></div></div>
-            <span class="muted">${step.result.reasoning}</span>`;
+            <span class="muted" style="font-size:11px;">score: ${step.result.danger_score} — ${step.result.reasoning}</span>`;
         } else if (step.result.message) {
           html += `${step.result.message}`;
         } else if (step.result.response) {
@@ -512,7 +614,7 @@
     el.innerHTML = '<div class="result">Sending SOS…</div>';
     const loc = userMarker ? { lat: userMarker.getLatLng().lat, lng: userMarker.getLatLng().lng } : { lat: 30.19, lng: 71.47 };
     try {
-      const data = await postJSON('/emergency/sos', { user_id: 'demo-user', location: loc, reason: 'manual_trigger' });
+      const data = await postJSON('/emergency/sos', { location: loc, reason: 'manual_trigger' });
       let contactsHtml = data.incident.notified_contacts.length === 0
         ? '<span class="muted">No personal contacts added yet — add one below to test a real call.</span>'
         : data.incident.notified_contacts.map(c => `${c.name}: <span class="mono">${c.call_status}</span>`).join('<br>');
@@ -552,11 +654,14 @@
       let html = '<div class="result">';
       data.all_routes_ranked.forEach(r => {
         const isBest = r.route === data.recommended_route.route;
+        const label = safetyLabel(r.score);
         html += `<div class="route-item ${isBest ? 'best' : ''}">
           <div><b>${r.route}</b>${isBest ? ' <span class="badge" style="color:var(--beacon)">Recommended</span>' : ''}<br>
           <span class="muted">${r.reason}</span></div>
-          <div style="color:${scoreColor(1-r.score)}; font-weight:600;">${r.score}</div>
-        </div>`;
+          <div style="text-align:right;">
+            <div style="color:${label.color}; font-weight:700; font-size:14px;">${label.text}</div>
+            <div class="muted" style="font-size:11px;">score: ${r.score}</div>
+          </div></div>`;
       });
       html += '</div>';
       el.innerHTML += html;
@@ -610,7 +715,7 @@
     if (!message) return;
     el.innerHTML = '<div class="result">Thinking…</div>';
     try {
-      const data = await postJSON('/recovery/chat', { message, user_id: 'demo-user' });
+      const data = await postJSON('/recovery/chat', { message });
       el.innerHTML = `<div class="result">${data.response}</div>`;
     } catch (err) { errorBox(el, err); }
   }
