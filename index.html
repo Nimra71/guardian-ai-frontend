@@ -173,6 +173,43 @@
     background: var(--safe); color: #0a1f13; text-decoration: none;
     font-weight: 600; font-size: 13px; padding: 7px 14px; border-radius: 7px;
   }
+
+  /* ---------- Mobile responsiveness ---------- */
+  @media (max-width: 520px) {
+    header { padding: 18px 16px; gap: 12px; }
+    header h1 { font-size: 18px; }
+    header .tagline { font-size: 11px; }
+    .beacon-wrap { width: 36px; height: 36px; }
+    .beacon-core { width: 11px; height: 11px; }
+
+    nav { padding: 0 12px; }
+    nav button { padding: 11px 12px; font-size: 12.5px; }
+
+    main { padding: 16px 12px 60px; }
+    .card { padding: 16px; border-radius: 12px; margin-bottom: 14px; }
+    .card h2 { font-size: 14px; }
+    .card .desc { font-size: 12.5px; }
+
+    /* Side-by-side inputs (From/To, contact name/phone) stack on narrow screens */
+    .row { flex-direction: column; gap: 8px; }
+
+    input, textarea, select { font-size: 16px; } /* 16px prevents iOS auto-zoom on focus */
+    .btn { width: 100%; padding: 13px 20px; }
+    .btn-danger { padding: 16px; }
+
+    #map, #routeMap { height: 200px; }
+
+    .route-item, .contact-row, .incident { padding: 10px; }
+    .chain-agent { font-size: 10px; padding: 2px 6px; }
+
+    .config-note { font-size: 11px; padding: 10px; }
+    .config-note > div { flex-direction: column; align-items: flex-start !important; gap: 8px; }
+  }
+
+  @media (max-width: 360px) {
+    header h1 { font-size: 16px; }
+    nav button { padding: 10px 9px; font-size: 11.5px; }
+  }
 </style>
 </head>
 <body>
@@ -253,6 +290,12 @@
       <button class="btn btn-danger" onclick="callSOS()">🚨 Trigger SOS Now</button>
       <div id="sosResult"></div>
       <div id="map"></div>
+    </div>
+    <div class="card">
+      <h2>📳 Shake to Trigger</h2>
+      <p class="desc">Faster than finding the button in a panic — enable this, then shake your phone hard 3 times to trigger SOS automatically, even without unlocking to this exact screen (works while this tab is open in the background on most phones).</p>
+      <button class="btn" id="shakeBtn" onclick="toggleShakeDetection()">Enable Shake Detection</button>
+      <div id="shakeStatus" class="result" style="display:none;"></div>
     </div>
     <div class="card">
       <h2>Emergency Numbers (Pakistan)</h2>
@@ -607,6 +650,81 @@
       html += `</div></div>`;
       el.innerHTML = html;
     } catch (err) { errorBox(el, err); }
+  }
+
+  // ---------- Shake to trigger SOS ----------
+  let shakeEnabled = false;
+  let lastShakeTime = 0;
+  let shakeCount = 0;
+  const SHAKE_THRESHOLD = 18;       // acceleration magnitude that counts as "a hard shake"
+  const SHAKE_COUNT_NEEDED = 3;     // how many hard shakes in a row
+  const SHAKE_WINDOW_MS = 2500;     // ...within this many milliseconds
+  const SHAKE_COOLDOWN_MS = 15000;  // don't re-trigger again for 15s after firing once
+
+  let lastShakeTriggerAt = 0;
+
+  function handleMotion(event) {
+    const acc = event.accelerationIncludingGravity;
+    if (!acc) return;
+    const magnitude = Math.sqrt((acc.x || 0) ** 2 + (acc.y || 0) ** 2 + (acc.z || 0) ** 2);
+    const now = Date.now();
+
+    if (magnitude > SHAKE_THRESHOLD) {
+      if (now - lastShakeTime > SHAKE_WINDOW_MS) shakeCount = 0; // too slow, restart counting
+      shakeCount++;
+      lastShakeTime = now;
+
+      const statusEl = document.getElementById('shakeStatus');
+      if (statusEl) statusEl.innerHTML = `<span class="muted">Shake detected (${shakeCount}/${SHAKE_COUNT_NEEDED})…</span>`;
+
+      if (shakeCount >= SHAKE_COUNT_NEEDED && now - lastShakeTriggerAt > SHAKE_COOLDOWN_MS) {
+        shakeCount = 0;
+        lastShakeTriggerAt = now;
+        if (statusEl) statusEl.innerHTML = `<span style="color: var(--danger); font-weight:600;">🚨 Shake detected — triggering SOS…</span>`;
+        callSOS();
+      }
+    }
+  }
+
+  async function toggleShakeDetection() {
+    const btn = document.getElementById('shakeBtn');
+    const statusEl = document.getElementById('shakeStatus');
+
+    if (shakeEnabled) {
+      window.removeEventListener('devicemotion', handleMotion);
+      shakeEnabled = false;
+      btn.textContent = 'Enable Shake Detection';
+      statusEl.style.display = 'none';
+      return;
+    }
+
+    // iOS 13+ requires an explicit permission prompt, triggered by a real button tap.
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        const permission = await DeviceMotionEvent.requestPermission();
+        if (permission !== 'granted') {
+          statusEl.style.display = 'block';
+          statusEl.innerHTML = '<span style="color:var(--danger)">Motion permission denied — enable it in your phone\'s browser settings to use this feature.</span>';
+          return;
+        }
+      } catch (err) {
+        statusEl.style.display = 'block';
+        statusEl.innerHTML = '<span style="color:var(--danger)">Couldn\'t request motion permission on this device.</span>';
+        return;
+      }
+    }
+
+    if (typeof DeviceMotionEvent === 'undefined') {
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = '<span style="color:var(--danger)">This browser/device doesn\'t support motion detection.</span>';
+      return;
+    }
+
+    window.addEventListener('devicemotion', handleMotion);
+    shakeEnabled = true;
+    btn.textContent = 'Disable Shake Detection';
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = '<span style="color:var(--safe)">🟢 Active — shake your phone hard 3 times to trigger SOS.</span>';
   }
 
   async function callSOS() {
