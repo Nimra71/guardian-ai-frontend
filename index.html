@@ -432,12 +432,20 @@
       localStorage.setItem('guardianai_token', data.token);
       localStorage.setItem('guardianai_email', data.email);
       showApp();
+      // Start listening automatically right after login — no separate button needed.
+      // Your browser will ask for mic permission now, right after this tap, since that's
+      // the one moment browsers allow it (they require a real user interaction first).
+      toggleGuardianMode();
     } catch (err) {
       el.innerHTML = `<div class="result" style="border-color: var(--danger); color: var(--danger);">Couldn't reach the backend. Is the Backend URL correct?</div>`;
     }
   }
 
   function logout() {
+    if (guardianModeOn && recognition) {
+      recognition.stop();
+      guardianModeOn = false;
+    }
     localStorage.removeItem('guardianai_token');
     localStorage.removeItem('guardianai_email');
     document.getElementById('appContent').style.display = 'none';
